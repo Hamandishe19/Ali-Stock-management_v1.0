@@ -38,7 +38,7 @@ window.SyncEngine = (function() {
 
   async function init(supabaseClient) {
     supabase = supabaseClient;
-    getDeviceId(); // Initialize device ID
+    getDeviceId();
 
     // Setup online/offline listeners
     window.addEventListener('online', () => {
@@ -47,12 +47,19 @@ window.SyncEngine = (function() {
       }
     });
 
-    // Start realtime if online
+    // Start realtime and sync if online
     if (window.AppState && window.AppState.isOnline()) {
       setupRealtimeSubscriptions();
       // Initial sync on load
       setTimeout(fullSync, 1000);
     }
+
+    // Polling fallback every 30 seconds — ensures sync even if Realtime WebSocket drops
+    setInterval(() => {
+      if (window.AppState && window.AppState.isOnline()) {
+        fullSync();
+      }
+    }, 30000);
   }
 
   async function pushChanges() {
@@ -225,10 +232,10 @@ window.SyncEngine = (function() {
 
       // Update sync time
       setLastSyncTime(currentSyncTime);
-      
-      // Refresh UI if necessary
+
+      // Refresh UI if new data arrived
       if ((remoteInventory && remoteInventory.length > 0) || (remoteTransactions && remoteTransactions.length > 0)) {
-        document.dispatchEvent(new Event('sync_completed_with_data'));
+        window.dispatchEvent(new Event('sync_completed_with_data'));
       }
 
     } catch (err) {
@@ -258,7 +265,7 @@ window.SyncEngine = (function() {
   function setupRealtimeSubscriptions() {
     if (!supabase) return;
 
-    supabase.channel('custom-all-channel')
+    const channel = supabase.channel('jdi-stock-sync')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'inventory' },
@@ -273,7 +280,10 @@ window.SyncEngine = (function() {
           handleRemoteTransactionInsert(payload);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[SyncEngine] Realtime subscription status:', status);
+        // If realtime fails, the 30s polling interval will keep devices in sync
+      });
   }
 
   async function handleRemoteInventoryChange(payload) {
@@ -296,7 +306,7 @@ window.SyncEngine = (function() {
         is_deleted: remoteItem.is_deleted
       };
       await window.StockDB.putItemFromRemote(mappedItem);
-      document.dispatchEvent(new Event('sync_completed_with_data'));
+      window.dispatchEvent(new Event('sync_completed_with_data'));
     }
   }
 
@@ -332,7 +342,7 @@ window.SyncEngine = (function() {
         timestamp: parseInt(remoteTx.timestamp, 10)
       };
       await window.StockDB.addTransactionFromRemote(mappedTx);
-      document.dispatchEvent(new Event('sync_completed_with_data'));
+      window.dispatchEvent(new Event('sync_completed_with_data'));
     }
   }
 
