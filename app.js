@@ -22,6 +22,9 @@ const AppState = {
   }
 };
 
+// Expose on window so sync.js can access it across scripts
+window.AppState = AppState;
+
 window.addEventListener('sync_completed_with_data', () => {
   initActivePage();
 });
@@ -1875,8 +1878,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (window.Auth && window.Auth.initSupabase) {
       await window.Auth.initSupabase();
     }
-    if (window.SyncEngine && window.Auth && window.Auth.getSupabaseClient()) {
-      window.SyncEngine.init(window.Auth.getSupabaseClient());
+
+    const supabaseClient = window.Auth?.getSupabaseClient();
+    if (window.SyncEngine && supabaseClient) {
+      window.SyncEngine.init(supabaseClient);
     }
 
     updateConnectionUI();
@@ -1885,3 +1890,4 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.error('Application bootstrap failed:', err);
   }
 });
+
