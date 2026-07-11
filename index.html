@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>JDI Stock Management - Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: {
+              primary: '#0284c7',
+              450: '#38bdf8'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="shared.css">
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+  <script src="sync.js"></script>
+</head>
+<body class="relative overflow-x-hidden pb-12">
+  <div class="glow-bg"></div>
+
+  <!-- Header & Navbar -->
+  <header class="glass-nav sticky top-0 z-40 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <!-- Modern Industrial Icon -->
+        <div class="bg-gradient-to-tr from-sky-600 to-sky-400 p-2.5 rounded-xl shadow-lg shadow-sky-900/30">
+          <svg class="w-6 h-6 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-wider bg-gradient-to-r from-sky-450 to-white bg-clip-text text-transparent">JDI</h1>
+          <p class="text-3xs tracking-widest text-slate-400 font-bold uppercase">STOCK MANAGEMENT</p>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="flex items-center space-x-1 bg-slate-950/45 p-1 rounded-xl border border-white/5">
+        <a href="index.html" class="px-4 py-2 rounded-lg text-sm font-semibold bg-sky-primary text-white shadow-lg transition">Dashboard</a>
+        <a href="inventory.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Inventory</a>
+        <a href="transaction.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition flex items-center space-x-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+          </svg>
+          <span>Transactions</span>
+        </a>
+        <a href="history.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Logs</a>
+      </nav>
+
+      <!-- Network and User Selector Controls -->
+      <div class="flex items-center space-x-4">
+        <div id="user-selector-container"></div>
+        <div class="relative">
+          <span id="status-badge" onclick="toggleSimulatedConnection()" title="Click to simulate offline / online modes">
+            Checking Link...
+          </span>
+          <span id="queue-indicator" class="hidden"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-6 mt-8">
+    
+    <!-- Connection Status Helper banner -->
+    <div class="glass p-4 rounded-2xl mb-8 border border-white/5 flex items-center space-x-3">
+      <div class="bg-sky-500/10 p-2 rounded-lg text-sky-400">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+      </div>
+      <div class="text-xs">
+        <span class="font-bold text-slate-200 block" id="status-text">Synchronizing workspace metadata...</span>
+        <span class="text-slate-400">Tip: Click the ONLINE/OFFLINE badge in the top right to simulate losing connection and test offline transactions queueing!</span>
+      </div>
+    </div>
+
+    <!-- Metrics Section -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      
+      <!-- Metric: Total Hardware Items -->
+      <div class="glass-card rounded-2xl p-6 relative overflow-hidden flex items-center justify-between">
+        <div class="flex flex-col">
+          <span class="text-2xs font-extrabold text-slate-400 tracking-wider uppercase mb-1">Total SKU Inventory</span>
+          <span class="text-4xl font-extrabold text-white" id="total-items-metric">-</span>
+          <span class="text-xs text-sky mt-2 font-medium">Registered hardware items</span>
+        </div>
+        <div class="text-sky-500/20">
+          <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+          </svg>
+        </div>
+        <div class="absolute bottom-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full blur-xl"></div>
+      </div>
+
+      <!-- Metric: Low Stock Items -->
+      <div class="glass-card rounded-2xl p-6 relative overflow-hidden flex items-center justify-between">
+        <div class="flex flex-col">
+          <span class="text-2xs font-extrabold text-slate-400 tracking-wider uppercase mb-1">Low Stock Alerts</span>
+          <span class="text-4xl font-extrabold text-white" id="low-stock-metric">-</span>
+          <span class="text-xs text-slate-400 mt-2 font-medium">Below safe minimum threshold</span>
+        </div>
+        <div class="text-amber-500/25">
+          <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        </div>
+        <div class="absolute bottom-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl"></div>
+      </div>
+
+      <!-- Metric: Active Users -->
+      <div class="glass-card rounded-2xl p-6 relative overflow-hidden flex items-center justify-between">
+        <div class="flex flex-col">
+          <span class="text-2xs font-extrabold text-slate-400 tracking-wider uppercase mb-1">Logged Operators</span>
+          <span class="text-4xl font-extrabold text-white" id="active-users-metric">1</span>
+          <span class="text-xs text-slate-400 mt-2 font-medium">Logged in: <span id="active-user-display" class="text-sky font-semibold">ALI</span></span>
+        </div>
+        <div class="text-sky-500/20">
+          <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+          </svg>
+        </div>
+        <div class="absolute bottom-0 right-0 w-24 h-24 bg-sky-500/5 rounded-full blur-xl"></div>
+      </div>
+
+    </section>
+
+    <!-- Quick Actions -->
+    <section class="mb-8">
+      <h2 class="text-xs font-extrabold tracking-widest text-slate-400 uppercase mb-4">Stock Quick Actions</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        
+        <!-- Action: Stock In -->
+        <a href="transaction.html" onclick="localStorage.setItem('default_flow', 'in')" class="glass-card rounded-xl p-5 flex items-center space-x-4 border border-white/5 hover:border-emerald-500/30">
+          <div class="bg-emerald-500/10 p-3 rounded-lg text-emerald-400">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 11l3-3m0 0l3 3m-3-3v8m0-13a9 9 0 110 18 9 9 0 010-18z"></path>
+            </svg>
+          </div>
+          <div>
+            <span class="font-bold text-slate-200 block text-sm">Stock In (Receive)</span>
+            <span class="text-3xs text-slate-400 block uppercase font-extrabold tracking-wider">Goods Received Voucher</span>
+          </div>
+        </a>
+
+        <!-- Action: Stock Out -->
+        <a href="transaction.html" onclick="localStorage.setItem('default_flow', 'out')" class="glass-card rounded-xl p-5 flex items-center space-x-4 border border-white/5 hover:border-amber-500/30">
+          <div class="bg-amber-500/10 p-3 rounded-lg text-amber-400">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13l-3 3m0 0l-3-3m3 3V8m0-5a9 9 0 110 18 9 9 0 010-18z"></path>
+            </svg>
+          </div>
+          <div>
+            <span class="font-bold text-slate-200 block text-sm">Stock Out (Issue)</span>
+            <span class="text-3xs text-slate-400 block uppercase font-extrabold tracking-wider">Goods Issued Note</span>
+          </div>
+        </a>
+
+        <!-- Action: Manage Stock -->
+        <a href="inventory.html" class="glass-card rounded-xl p-5 flex items-center space-x-4 border border-white/5 hover:border-sky-500/30">
+          <div class="bg-sky-500/10 p-3 rounded-lg text-sky-400">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+            </svg>
+          </div>
+          <div>
+            <span class="font-bold text-slate-200 block text-sm">View Inventory</span>
+            <span class="text-3xs text-slate-400 block uppercase font-extrabold tracking-wider">Filters & Alerts</span>
+          </div>
+        </a>
+
+        <!-- Action: Logs -->
+        <a href="history.html" class="glass-card rounded-xl p-5 flex items-center space-x-4 border border-white/5 hover:border-sky-500/30">
+          <div class="bg-purple-500/10 p-3 rounded-lg text-purple-400">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 00-2 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+            </svg>
+          </div>
+          <div>
+            <span class="font-bold text-slate-200 block text-sm">Audit Trail Logs</span>
+            <span class="text-3xs text-slate-400 block uppercase font-extrabold tracking-wider">History Ledger</span>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <!-- Double-Panel Layout for Recent Logs and Stock Warnings -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      
+      <!-- Panel A: Critical Stock Warnings (Low Stock Alerts) -->
+      <section class="glass p-6 rounded-2xl border border-white/5">
+        <div class="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+          <h3 class="font-bold text-slate-200 flex items-center space-x-2">
+            <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span>Critical Stock Alerts</span>
+          </h3>
+          <span class="text-2xs text-slate-400 font-semibold uppercase">Below Threshold</span>
+        </div>
+        
+        <!-- Alerts Container -->
+        <div id="dashboard-alerts-list" class="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+          <div class="text-center py-6 text-slate-400 text-sm">Loading levels...</div>
+        </div>
+      </section>
+
+      <!-- Panel B: Recent Transactions History Ledger -->
+      <section class="glass p-6 rounded-2xl border border-white/5">
+        <div class="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+          <h3 class="font-bold text-slate-200 flex items-center space-x-2">
+            <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            <span>Recent Activity Logs</span>
+          </h3>
+          <a href="history.html" class="text-2xs text-sky hover:text-sky-300 font-bold uppercase transition">View All</a>
+        </div>
+        
+        <!-- Activities Container -->
+        <div id="recent-activity-list" class="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+          <div class="text-center py-6 text-slate-400 text-sm">Loading logs...</div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- Global Toast Alert Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm w-full"></div>
+
+  <!-- Scripts -->
+  <script src="db.js"></script>
+  <script src="db-init-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

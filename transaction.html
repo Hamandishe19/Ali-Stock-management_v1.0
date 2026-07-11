@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="JDI Stock Management - Goods Received Voucher transactions with digital signatures.">
+  <title>JDI Stock Management - Transactions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: {
+              primary: '#0284c7',
+              450: '#38bdf8'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="shared.css">
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+  <script src="sync.js"></script>
+</head>
+<body class="relative overflow-x-hidden pb-12">
+  <div class="glow-bg"></div>
+
+  <!-- Header & Navbar -->
+  <header class="glass-nav sticky top-0 z-40 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="bg-gradient-to-tr from-sky-600 to-sky-400 p-2.5 rounded-xl shadow-lg shadow-sky-900/30">
+          <svg class="w-6 h-6 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-wider bg-gradient-to-r from-sky-450 to-white bg-clip-text text-transparent">JDI</h1>
+          <p class="text-3xs tracking-widest text-slate-400 font-bold uppercase">STOCK MANAGEMENT</p>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="flex items-center space-x-1 bg-slate-950/45 p-1 rounded-xl border border-white/5">
+        <a href="index.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Dashboard</a>
+        <a href="inventory.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Inventory</a>
+        <a href="transaction.html" class="px-4 py-2 rounded-lg text-sm font-semibold bg-sky-primary text-white shadow-lg transition flex items-center space-x-1.5">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+          </svg>
+          <span>Transactions</span>
+        </a>
+        <a href="history.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Logs</a>
+      </nav>
+
+      <!-- Network and User Selector controls -->
+      <div class="flex items-center space-x-4">
+        <div id="user-selector-container"></div>
+        <div class="relative">
+          <span id="status-badge" onclick="toggleSimulatedConnection()" title="Click to simulate offline / online modes">
+            Checking Link...
+          </span>
+          <span id="queue-indicator" class="hidden"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-5xl mx-auto px-6 mt-8">
+    
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold text-slate-100">Goods Received Voucher (GRV)</h2>
+      <p class="text-xs text-slate-400 mt-1">Select mode, add goods to the list, complete all three signatures, and submit the voucher.</p>
+    </div>
+
+    <!-- Toggle Flow Ribbon -->
+    <div class="flex p-1 rounded-2xl bg-slate-950/50 border border-white/5 mb-8">
+      <button id="btn-flow-in" class="flex-1 py-3 px-4 rounded-xl font-bold bg-sky-primary text-white border border-sky-400/20 shadow-lg shadow-sky-900/20 focus:outline-none transition">
+        Stock In — Goods Received Note (GRN)
+      </button>
+      <button id="btn-flow-out" class="flex-1 py-3 px-4 rounded-xl font-bold bg-slate-900/40 text-slate-400 border border-white/5 hover:bg-slate-900/60 focus:outline-none transition">
+        Stock Out — Goods Issued Note (GIN)
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      
+      <!-- Panel A: Item Selector & Cart Builder (5 cols) -->
+      <section class="lg:col-span-5 space-y-6">
+        
+        <!-- Cart Add Form Panel -->
+        <div class="glass p-6 rounded-2xl border border-white/5 space-y-4">
+          <h3 class="font-bold text-slate-200 text-sm flex items-center space-x-2">
+            <svg class="w-5 h-5 text-sky-450" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+            </svg>
+            <span>Select Item to Add</span>
+          </h3>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Hardware Item SKU / Name *</label>
+            <div class="relative w-full" id="custom-select-container">
+              <!-- Trigger Button -->
+              <div id="custom-select-trigger" onclick="toggleCustomSelect()" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none cursor-pointer flex justify-between items-center transition hover:border-sky-500/30">
+                <span id="custom-select-display" class="truncate text-slate-400">-- Choose Hardware SKU --</span>
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              
+              <!-- Dropdown Menu -->
+              <div id="custom-select-dropdown" class="absolute z-50 w-full mt-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl hidden flex-col overflow-hidden">
+                <div class="p-2 border-b border-white/5 bg-slate-950/80">
+                  <div class="relative">
+                    <input type="text" id="custom-select-search" placeholder="Search SKU, Name, Category..." class="w-full pl-8 pr-3 py-2 rounded-lg bg-slate-900 border border-white/5 text-sm focus:outline-none focus:border-sky-500/50 text-slate-200">
+                    <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                      <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <ul id="custom-select-options" class="max-h-60 overflow-y-auto custom-scrollbar">
+                  <li class="px-3 py-3 text-sm text-slate-400 text-center">Loading inventory...</li>
+                </ul>
+              </div>
+              
+              <!-- Hidden input to maintain compatibility with existing JS logic -->
+              <input type="hidden" id="cart-sku-select" value="">
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Quantity *</label>
+            <input type="number" id="cart-qty-input" min="1" value="1" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+
+          <button id="add-to-cart-btn" onclick="addItemToCart()" class="w-full py-2.5 rounded-xl font-bold bg-sky-primary text-white border border-sky-400/20 hover:bg-sky-650 transition">
+            Add to Voucher List
+          </button>
+        </div>
+
+        <!-- Selected Item Details Card -->
+        <div id="selected-item-details" class="hidden glass-card p-5 rounded-2xl border border-sky-500/20">
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex flex-col">
+              <span class="text-3xs text-sky font-extrabold tracking-widest uppercase">Item Details</span>
+              <span id="selected-sku-display" class="text-lg font-bold text-slate-100 font-mono">None</span>
+            </div>
+            <span id="item-detail-category" class="bg-sky-500/15 text-sky-400 border border-sky-500/25 px-2 py-0.5 text-2xs font-semibold rounded-full">—</span>
+          </div>
+          <h4 id="item-detail-name" class="text-sm font-bold text-slate-200 mb-2">—</h4>
+          <div class="text-xs text-slate-400 flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span id="item-detail-qty" class="font-medium">0 in stock</span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Panel B: Goods List & Accountability Form (7 cols) -->
+      <section class="lg:col-span-7 space-y-6">
+        
+        <!-- Goods Table -->
+        <div class="glass p-6 rounded-2xl border border-white/5 space-y-4">
+          <h3 class="font-bold text-slate-200 text-sm flex items-center space-x-2">
+            <svg class="w-5 h-5 text-sky-450" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 00-2 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            <span>Goods Voucher List</span>
+          </h3>
+
+          <div class="overflow-hidden border border-white/5 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-950/40 text-slate-400 font-extrabold uppercase border-b border-white/5">
+                  <th class="px-4 py-3">Item Detail</th>
+                  <th class="px-4 py-3 text-center">Qty</th>
+                  <th class="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="cart-table-body">
+                <tr>
+                  <td colspan="3" class="text-center py-8 text-slate-500 font-medium">Your goods voucher list is empty. Select an item on the left to begin.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Accountability Form -->
+        <div class="glass p-6 rounded-2xl border border-white/5">
+          
+          <!-- Stock IN Form (GRN) -->
+          <form id="form-stock-in" class="space-y-6">
+            <h3 class="font-bold text-emerald-400 text-sm flex items-center space-x-2 pb-2 border-b border-white/5">
+              <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full inline-block animate-pulse"></span>
+              <span>Goods Received Note (GRN) — Accountability</span>
+            </h3>
+
+            <!-- Reference & Memo -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Memo / Activity</label>
+                <input type="text" id="grn-memo" placeholder="e.g. Weekly Supplies Replenishment" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Reference</label>
+                <input type="text" id="grn-reference" placeholder="e.g. PO-2026-0045" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+            </div>
+
+            <!-- JT/Orden -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">JT / Orden</label>
+              <input type="text" id="grn-jt-orden" placeholder="e.g. JT-2026-001" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+            </div>
+
+            <!-- Three-Party Accountability -->
+            <div class="space-y-2">
+              <p class="text-xs font-extrabold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-1">Three-Party Signatures</p>
+            </div>
+
+            <!-- Authorised By -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">1. Authorised By</span>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                <input type="text" id="grn-authorised-by" value="Mr S. I. Johnson" readonly class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none bg-slate-900/60 text-slate-400 cursor-not-allowed">
+              </div>
+              <div id="authorised-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('authorised')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Authorised By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <!-- Received By -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">2. Received By *</span>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                  <input type="text" id="grn-received-by" value="Ali" readonly class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none bg-slate-900/60 text-slate-400 cursor-not-allowed">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-400 mb-1">Ali's Staff PIN *</label>
+                  <input type="password" id="grn-auth-pin" placeholder="Enter Ali's PIN" required class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+                </div>
+              </div>
+              <div id="received-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('received')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Received By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <!-- Delivered By -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">3. Delivered By (Supplier / Courier) *</span>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                <input type="text" id="grn-delivered-by" placeholder="e.g. Apex Industrial Supplies" required class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+              <div id="delivered-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('delivered')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Delivered By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <button type="submit" class="w-full py-3.5 rounded-xl font-bold bg-emerald-500 text-slate-950 border border-emerald-400/20 hover:bg-emerald-600 transition shadow-lg shadow-emerald-950/20">
+              Submit Goods Received Voucher
+            </button>
+          </form>
+
+          <!-- Stock OUT Form (GIN) (Hidden on load) -->
+          <form id="form-stock-out" class="space-y-6 hidden">
+            <h3 class="font-bold text-amber-400 text-sm flex items-center space-x-2 pb-2 border-b border-white/5">
+              <span class="w-2.5 h-2.5 bg-amber-500 rounded-full inline-block animate-pulse"></span>
+              <span>Goods Issued Note (GIN) — Accountability</span>
+            </h3>
+
+            <!-- Reference & Memo -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Memo / Activity</label>
+                <input type="text" id="gin-memo" placeholder="e.g. Site Maintenance Job" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Reference</label>
+                <input type="text" id="gin-reference" placeholder="e.g. WO-2026-0012" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+            </div>
+
+            <!-- JT/Orden -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">JT / Orden</label>
+              <input type="text" id="gin-jt-orden" placeholder="e.g. JT-2026-002" class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+            </div>
+
+            <!-- Three-Party Accountability -->
+            <div class="space-y-2">
+              <p class="text-xs font-extrabold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-1">Three-Party Signatures</p>
+            </div>
+
+            <!-- Authorised By (GIN) -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">1. Authorised By</span>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                <input type="text" id="gin-authorised-by" value="Mr S. I. Johnson" readonly class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none bg-slate-900/60 text-slate-400 cursor-not-allowed">
+              </div>
+              <div id="gin-authorised-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('gin-authorised')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Authorised By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <!-- Inspected By (GIN) -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">2. Inspected By *</span>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                  <input type="text" id="gin-inspected-by" value="Ali" readonly class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none bg-slate-900/60 text-slate-400 cursor-not-allowed">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-400 mb-1">Ali's Staff PIN *</label>
+                  <input type="password" id="gin-auth-pin" placeholder="Enter Ali's PIN" required class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+                </div>
+              </div>
+              <div id="gin-inspected-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('gin-inspected')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Inspected By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <!-- Delivered By (GIN) = Stock Handler -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">3. Delivered By (Stock Handler) *</span>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                <input type="text" id="gin-delivered-by" placeholder="Staff who issued the goods" required class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+              <div id="gin-delivered-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('gin-delivered')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Delivered By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <!-- Received By (GIN) -->
+            <div class="space-y-2">
+              <span class="block text-xs font-semibold text-slate-300">4. Received By (Technician / Requester) *</span>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">Name</label>
+                <input type="text" id="gin-received-by" placeholder="e.g. Dave Martinez (Plumber)" required class="w-full px-3 py-2.5 rounded-lg glass-input text-sm focus:outline-none">
+              </div>
+              <div id="gin-received-sig-container" class="h-24 bg-slate-950/45 rounded-xl border border-white/5 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:border-sky-500/30 transition" onclick="openSignatureModal('gin-received')">
+                <span class="text-3xs text-sky font-bold uppercase tracking-widest animate-pulse">Tap to Draw Received By Signature (Optional)</span>
+              </div>
+            </div>
+
+            <button type="submit" class="w-full py-3.5 rounded-xl font-bold bg-amber-500 text-slate-950 border border-amber-400/20 hover:bg-amber-600 transition shadow-lg shadow-amber-950/20">
+              Submit Goods Issued Note
+            </button>
+          </form>
+
+        </div>
+
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- MODAL: Canvas Digital Signature Pad -->
+  <div id="signature-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="glass-modal rounded-3xl w-full max-w-md overflow-hidden border border-white/10 shadow-2xl">
+      <div class="px-6 py-4 bg-slate-900/60 border-b border-white/10 flex items-center justify-between">
+        <h3 class="font-bold text-slate-100 text-sm flex items-center space-x-2">
+          <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+          </svg>
+          <span id="signature-modal-title">Draw Signature</span>
+        </h3>
+        <button onclick="closeSignatureModal()" class="text-slate-400 hover:text-white transition">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <p class="text-2xs text-slate-400">Please sign inside the canvas box below. Touch screen or mouse drawing is supported.</p>
+        
+        <div class="relative w-full bg-slate-950 rounded-2xl overflow-hidden border border-white/10">
+          <canvas id="signature-canvas" class="w-full h-44 cursor-crosshair block bg-slate-950"></canvas>
+        </div>
+        
+        <div class="flex items-center justify-between pt-2">
+          <button onclick="clearSignatureCanvas()" class="px-4 py-2 rounded-xl text-xs font-bold glass text-slate-400 hover:text-white transition border border-white/5">
+            Clear Signature
+          </button>
+          
+          <div class="flex items-center space-x-3">
+            <button onclick="closeSignatureModal()" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition">
+              Cancel
+            </button>
+            <button onclick="saveSignatureCanvas()" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-sky-primary text-white border border-sky-400/20 hover:bg-sky-600 transition">
+              Accept Signature
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm w-full"></div>
+
+  <!-- Script triggers for quick actions default selections -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const defaultFlow = localStorage.getItem('default_flow');
+      if (defaultFlow === 'out') {
+        setTimeout(() => {
+          const btnOut = document.getElementById('btn-flow-out');
+          if (btnOut) btnOut.click();
+          localStorage.removeItem('default_flow');
+        }, 150);
+      }
+    });
+  </script>
+
+  <!-- Scripts -->
+  <script src="db.js"></script>
+  <script src="db-init-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

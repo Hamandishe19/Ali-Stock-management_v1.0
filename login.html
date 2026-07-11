@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>JDI Stock Management - Sign In</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: {
+              primary: '#0284c7',
+              450: '#38bdf8'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="shared.css">
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+  <script src="sync.js"></script>
+</head>
+<body class="relative overflow-x-hidden flex items-center justify-center min-height-screen py-16 px-4">
+  <div class="glow-bg"></div>
+
+  <!-- Main Login Panel -->
+  <div class="glass max-w-md w-full rounded-3xl overflow-hidden border border-white/10 shadow-2xl p-8 space-y-6">
+    
+    <!-- Branding Header -->
+    <div class="text-center space-y-2">
+      <div class="inline-block bg-gradient-to-tr from-sky-600 to-sky-400 p-3 rounded-2xl shadow-xl shadow-sky-900/40 mb-2">
+        <svg class="w-8 h-8 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+        </svg>
+      </div>
+      <h2 class="text-2xl font-extrabold tracking-wider bg-gradient-to-r from-sky-450 to-white bg-clip-text text-transparent">JDI STOCK MANAGEMENT</h2>
+      <p class="text-3xs tracking-widest text-slate-400 font-bold uppercase">PROCUREMENT & LOGISTICS DEPT.</p>
+    </div>
+
+    <!-- Active Operator Card -->
+    <div class="p-4 rounded-2xl bg-slate-900/40 border border-white/5 flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center text-sky font-bold text-sm border border-sky-500/25">
+        A
+      </div>
+      <div class="flex-grow-1 flex-1">
+        <span class="text-3xs text-slate-400 block uppercase font-extrabold tracking-wider">Authorized Operator</span>
+        <span class="text-sm font-bold text-slate-200">ALI</span>
+      </div>
+      <span class="badge-online px-2 py-0.5 text-3xs font-extrabold rounded-full">ACTIVE WORKER</span>
+    </div>
+
+    <!-- Login Form -->
+    <form id="passcode-login-form" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 mb-1.5">Password / PIN *</label>
+        <input type="password" id="passcode-input" placeholder="••••••••" required
+          class="w-full text-center tracking-widest text-lg font-bold px-3 py-3 rounded-xl glass-input focus:outline-none"
+          minlength="8">
+      </div>
+
+      <div class="flex items-center justify-start">
+        <label class="flex items-center space-x-2 text-xs text-slate-400 cursor-pointer select-none">
+          <input type="checkbox" id="remember-me" class="rounded bg-slate-900 border-white/10 text-sky-primary focus:ring-sky-500">
+          <span>Stay signed in</span>
+        </label>
+      </div>
+
+      <button type="submit" id="submit-btn" class="w-full py-3.5 rounded-xl font-bold bg-sky-primary text-white border border-sky-400/20 hover:bg-sky-600 transition shadow-lg shadow-sky-950/45">
+        Sign In
+      </button>
+    </form>
+
+    <!-- Removed Biometric Section -->
+
+  <!-- Global Toast Alert Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm w-full"></div>
+
+  <!-- Logic scripts -->
+  <script src="db.js"></script>
+  
+  <script>
+    // Base account config — auto-provisioned on first launch
+    const OPERATOR_EMAIL = 'operator@jdi.org';
+    const BASE_PASSWORD  = '123ALI345';
+
+    // Initialize Supabase auth
+    if (window.Auth && window.Auth.initSupabase) {
+      window.Auth.initSupabase();
+    }
+
+    // Auto-bootstrap: silently register the account if it doesn't exist yet
+    async function bootstrapAccount() {
+      try {
+        await window.Auth.signUpWithEmail(OPERATOR_EMAIL, BASE_PASSWORD);
+        // Registration succeeded — first ever launch
+        console.log('Operator account bootstrapped.');
+      } catch (err) {
+        // Error "User already registered" is expected on every launch after the first
+        // Any other error is also fine to ignore here — sign-in will surface real issues
+      }
+    }
+
+    // Run bootstrap after a short delay to allow Supabase to initialise
+    setTimeout(bootstrapAccount, 800);
+
+    // --- Passcode Auth Flow ---
+    const loginForm = document.getElementById('passcode-login-form');
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const code = document.getElementById('passcode-input').value;
+      const remember = document.getElementById('remember-me').checked;
+
+      const submitBtn = document.getElementById('submit-btn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verifying...';
+
+      try {
+        await window.Auth.signInWithEmail(OPERATOR_EMAIL, code, remember);
+        showLocalToast('Authentication successful. Redirecting...', 'success');
+        setTimeout(() => {
+          window.location.href = 'index.html';
+        }, 1000);
+      } catch (err) {
+        showLocalToast('Incorrect password. Please try again.', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In';
+      }
+    });
+
+
+    // --- Toast Helper (Duplicate for isolated login context) ---
+    function showLocalToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = `glass px-6 py-4 rounded-xl shadow-2xl flex items-center justify-between border-l-4 transition-all duration-300 transform translate-y-10 opacity-0 max-w-md w-full mb-3`;
+      if (type === 'success') {
+        toast.classList.add('border-emerald-500', 'text-emerald-400');
+        toast.innerHTML = `<span class="text-sm font-medium text-slate-200">${message}</span>`;
+      } else if (type === 'warning') {
+        toast.classList.add('border-amber-500', 'text-amber-400');
+        toast.innerHTML = `<span class="text-sm font-medium text-slate-200">${message}</span>`;
+      } else {
+        toast.classList.add('border-red-500', 'text-red-400');
+        toast.innerHTML = `<span class="text-sm font-medium text-slate-200">${message}</span>`;
+      }
+      container.appendChild(toast);
+      setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'scale-95');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>

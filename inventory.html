@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>JDI Stock Management - Inventory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            sky: {
+              primary: '#0284c7',
+              450: '#38bdf8'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="shared.css">
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+  <script src="sync.js"></script>
+</head>
+<body class="relative overflow-x-hidden pb-12">
+  <div class="glow-bg"></div>
+
+  <!-- Header & Navbar -->
+  <header class="glass-nav sticky top-0 z-40 px-6 py-4">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <!-- Modern Industrial Icon -->
+        <div class="bg-gradient-to-tr from-sky-600 to-sky-400 p-2.5 rounded-xl shadow-lg shadow-sky-900/30">
+          <svg class="w-6 h-6 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-wider bg-gradient-to-r from-sky-450 to-white bg-clip-text text-transparent">JDI</h1>
+          <p class="text-3xs tracking-widest text-slate-400 font-bold uppercase">STOCK MANAGEMENT</p>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="flex items-center space-x-1 bg-slate-950/45 p-1 rounded-xl border border-white/5">
+        <a href="index.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Dashboard</a>
+        <a href="inventory.html" class="px-4 py-2 rounded-lg text-sm font-semibold bg-sky-primary text-white shadow-lg transition">Inventory</a>
+        <a href="transaction.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition flex items-center space-x-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+          </svg>
+          <span>Transactions</span>
+        </a>
+        <a href="history.html" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition">Logs</a>
+      </nav>
+
+      <!-- Network Control and User Indicator -->
+      <div class="flex items-center space-x-4">
+        <div id="user-selector-container"></div>
+        <div class="relative">
+          <span id="status-badge" onclick="toggleSimulatedConnection()" title="Click to simulate offline / online modes">
+            Checking Link...
+          </span>
+          <span id="queue-indicator" class="hidden"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-6 mt-8">
+
+    <!-- Title and Action Bar -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+      <div>
+        <h2 class="text-2xl font-extrabold text-slate-100">Equipment Inventory</h2>
+        <p class="text-xs text-slate-400 mt-1">Manage hardware, tools, safety gear and stock capacity limits.</p>
+      </div>
+      <button id="open-add-modal-btn" class="w-full sm:w-auto py-2.5 px-5 rounded-xl font-bold bg-sky-primary text-white border border-sky-400/20 shadow-lg shadow-sky-950/45 hover:bg-sky-600 transition flex items-center justify-center space-x-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+        </svg>
+        <span>Add Hardware Item</span>
+      </button>
+    </div>
+
+    <!-- Search & Filter Ribbon -->
+    <section class="glass p-4 rounded-2xl mb-8 border border-white/5 flex flex-col md:flex-row items-center gap-4">
+      
+      <!-- Search Field -->
+      <div class="relative flex-1 w-full">
+        <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+        </span>
+        <input type="text" id="inventory-search" placeholder="Search by SKU, item name or category..." class="w-full pl-10 pr-4 py-2.5 rounded-xl glass-input text-sm focus:outline-none">
+      </div>
+
+      <!-- Category Filter Dropdown -->
+      <div class="w-full md:w-64">
+        <select id="inventory-category-filter" class="w-full px-4 py-2.5 rounded-xl glass-input glass-select text-sm focus:outline-none cursor-pointer">
+          <option value="All">All Categories</option>
+          <option value="Power Tools">Power Tools</option>
+          <option value="Fasteners">Fasteners</option>
+          <option value="Electrical">Electrical</option>
+          <option value="Plumbing">Plumbing</option>
+          <option value="Safety">Safety</option>
+        </select>
+      </div>
+
+    </section>
+
+    <!-- Table View for Desktop -->
+    <section class="hidden md:block glass rounded-2xl border border-white/5 overflow-hidden mb-8">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-950/30 text-2xs font-extrabold uppercase tracking-widest text-slate-400 border-b border-white/10">
+              <th class="px-6 py-4">SKU Code</th>
+              <th class="px-6 py-4">Item Name</th>
+              <th class="px-6 py-4">Category</th>
+              <th class="px-6 py-4">Stock Quantity</th>
+              <th class="px-6 py-4">Thresholds (Min/Max)</th>
+              <th class="px-6 py-4">Status Alert</th>
+              <th class="px-6 py-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-table-body" class="divide-y divide-white/5">
+            <tr>
+              <td colspan="7" class="text-center py-12 text-slate-400">Loading inventory items...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Cards Grid View for Mobile -->
+    <section id="inventory-card-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-6 md:hidden">
+      <!-- Generated via JS -->
+      <div class="text-slate-400 text-center py-12">Loading mobile cards...</div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: Add Hardware Item -->
+  <div id="add-item-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="glass-modal rounded-3xl w-full max-w-lg overflow-hidden border border-white/10 shadow-2xl">
+      <div class="px-6 py-4 bg-slate-900/60 border-b border-white/10 flex items-center justify-between">
+        <h3 class="font-bold text-lg text-slate-100 flex items-center space-x-2">
+          <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+          </svg>
+          <span>Register New Hardware</span>
+        </h3>
+        <button id="close-add-modal-btn" class="text-slate-400 hover:text-white transition">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <form id="add-item-form" class="p-6 space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">SKU Code (Unique) *</label>
+            <input type="text" id="add-sku" placeholder="e.g. HW-TL-005" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Category *</label>
+            <select id="add-category" required class="w-full px-3 py-2 rounded-lg glass-input glass-select text-sm focus:outline-none cursor-pointer">
+              <option value="Power Tools">Power Tools</option>
+              <option value="Fasteners">Fasteners</option>
+              <option value="Electrical">Electrical</option>
+              <option value="Plumbing">Plumbing</option>
+              <option value="Safety">Safety</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Item Name *</label>
+          <input type="text" id="add-name" placeholder="e.g. DeWalt Hammer Drill 18V" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Qty *</label>
+            <input type="number" id="add-qty" min="0" value="10" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Min Limit *</label>
+            <input type="number" id="add-min" min="0" value="5" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Max Limit *</label>
+            <input type="number" id="add-max" min="0" value="50" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">SKU Code (Unique) *</label>
+            <input type="text" id="add-sku" placeholder="e.g. HW-TL-005" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Storage Location</label>
+            <input type="text" id="add-location" placeholder="e.g. Aisle B-4 Shelf 2" class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+        </div>
+
+        <div class="pt-4 flex justify-end space-x-3">
+          <button type="button" id="close-add-modal-btn-alt" onclick="document.getElementById('add-item-modal').classList.add('hidden')" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-400 hover:text-white transition">Cancel</button>
+          <button type="submit" class="px-5 py-2.5 rounded-lg text-sm font-semibold bg-sky-primary text-white border border-sky-400/20 hover:bg-sky-600 transition">Save Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Edit Hardware Item -->
+  <div id="edit-item-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="glass-modal rounded-3xl w-full max-w-lg overflow-hidden border border-white/10 shadow-2xl">
+      <div class="px-6 py-4 bg-slate-900/60 border-b border-white/10 flex items-center justify-between">
+        <h3 class="font-bold text-lg text-slate-100 flex items-center space-x-2">
+          <svg class="w-5 h-5 text-sky-450" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 00-2 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+          </svg>
+          <span>Modify Hardware Item</span>
+        </h3>
+        <button id="close-edit-modal-btn" class="text-slate-400 hover:text-white transition">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <form id="edit-item-form" class="p-6 space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">SKU Code (Read Only)</label>
+            <input type="text" id="edit-sku" readonly class="w-full px-3 py-2 rounded-lg bg-slate-900/60 border border-white/5 text-slate-400 text-sm focus:outline-none cursor-not-allowed">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Category *</label>
+            <select id="edit-category" required class="w-full px-3 py-2 rounded-lg glass-input glass-select text-sm focus:outline-none cursor-pointer">
+              <option value="Power Tools">Power Tools</option>
+              <option value="Fasteners">Fasteners</option>
+              <option value="Electrical">Electrical</option>
+              <option value="Plumbing">Plumbing</option>
+              <option value="Safety">Safety</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Item Name *</label>
+          <input type="text" id="edit-name" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Qty *</label>
+            <input type="number" id="edit-qty" min="0" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Min Limit *</label>
+            <input type="number" id="edit-min" min="0" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Max Limit *</label>
+            <input type="number" id="edit-max" min="0" required class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">SKU Code (Read Only)</label>
+            <input type="text" id="edit-sku" readonly class="w-full px-3 py-2 rounded-lg bg-slate-900/60 border border-white/5 text-slate-400 text-sm focus:outline-none cursor-not-allowed">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1.5">Storage Location</label>
+            <input type="text" id="edit-location" class="w-full px-3 py-2 rounded-lg glass-input text-sm focus:outline-none">
+          </div>
+        </div>
+
+        <div class="pt-4 flex justify-end space-x-3">
+          <button type="button" onclick="document.getElementById('edit-item-modal').classList.add('hidden')" class="px-5 py-2.5 rounded-lg text-sm font-semibold text-slate-400 hover:text-white transition">Cancel</button>
+          <button type="submit" class="px-5 py-2.5 rounded-lg text-sm font-semibold bg-sky-primary text-white border border-sky-400/20 hover:bg-sky-600 transition">Update Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-sm w-full"></div>
+
+  <!-- Scripts -->
+  <script src="db.js"></script>
+  <script src="db-init-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

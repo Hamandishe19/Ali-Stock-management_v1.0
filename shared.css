@@ -1,0 +1,295 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --font-family: 'Outfit', sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-family);
+  background: radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
+  background-attachment: fixed;
+  color: #f8fafc;
+  min-height: 100vh;
+}
+
+/* Glassmorphism Styles */
+.glass {
+  background: rgba(30, 41, 59, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-card {
+  background: rgba(30, 41, 59, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.25);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(56, 189, 248, 0.3); /* sky-400 */
+  box-shadow: 0 12px 30px 0 rgba(2, 132, 199, 0.15); /* sky-600 */
+  transform: translateY(-2px);
+}
+
+.glass-nav {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-modal {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
+}
+
+/* Text Highlights & Badges */
+.text-sky {
+  color: #38bdf8;
+}
+
+.bg-sky-primary {
+  background-color: #0284c7;
+}
+
+.border-sky-primary {
+  border-color: #38bdf8;
+}
+
+/* Custom Alert Badges */
+.badge-in {
+  background: rgba(16, 185, 129, 0.15); /* emerald-500 */
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399; /* emerald-400 */
+}
+
+.badge-out {
+  background: rgba(245, 158, 11, 0.15); /* amber-500 */
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24; /* amber-400 */
+}
+
+.badge-low-stock {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+  animation: pulse-amber 2s infinite;
+}
+
+.badge-over-stock {
+  background: rgba(239, 68, 68, 0.15); /* red-500 */
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171; /* red-400 */
+}
+
+.badge-online {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.badge-offline {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.3);
+}
+
+/* Animations */
+@keyframes pulse-amber {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+.glow-bg {
+  position: fixed;
+  top: -10%;
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(2, 132, 199, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(14, 165, 233, 0.08) 0%, transparent 40%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Utility styles for form inputs inside glass panels */
+.glass-input {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  transition: all 0.2s;
+}
+
+.glass-input:focus {
+  outline: none;
+  background: rgba(15, 23, 42, 0.6);
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.glass-input::placeholder {
+  color: #94a3b8;
+}
+
+.glass-select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+/* --- Biometrics animations --- */
+@keyframes laser-scan {
+  0%, 100% {
+    top: 5%;
+  }
+  50% {
+    top: 95%;
+  }
+}
+
+.scan-laser-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(to right, transparent, #38bdf8, #60a5fa, #38bdf8, transparent);
+  box-shadow: 0 0 10px #38bdf8, 0 0 20px rgba(56, 189, 248, 0.5);
+  animation: laser-scan 3s infinite ease-in-out;
+}
+
+@keyframes pulse-fingerprint {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+    filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.6));
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.4;
+  }
+}
+
+.fingerprint-scanner-pulse {
+  animation: pulse-fingerprint 2s infinite ease-in-out;
+}
+
+/* Print Layout Optimization */
+.print-only {
+  display: none;
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt !important;
+  }
+  
+  header, 
+  nav, 
+  #status-badge, 
+  #queue-indicator, 
+  #user-selector-container,
+  button, 
+  form, 
+  .no-print,
+  .quick-action-card,
+  section.no-print,
+  div.no-print,
+  footer {
+    display: none !important;
+  }
+  
+  .glow-bg {
+    display: none !important;
+  }
+
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .glass, .glass-card {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    color: black !important;
+    padding: 0 !important;
+  }
+
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin-top: 15px !important;
+  }
+
+  th, td {
+    border: 1px solid #1e293b !important;
+    padding: 8px 12px !important;
+    color: black !important;
+    background: transparent !important;
+  }
+
+  th {
+    font-weight: bold !important;
+    background-color: #f1f5f9 !important;
+  }
+
+  .badge-in, .badge-out {
+    background: transparent !important;
+    border: 1px solid black !important;
+    color: black !important;
+    padding: 2px 6px !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-header {
+    text-align: center;
+    border-bottom: 2px solid #1e293b;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+  }
+}

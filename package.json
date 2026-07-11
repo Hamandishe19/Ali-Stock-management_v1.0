@@ -1,0 +1,17 @@
+{
+  "name": "ironclad-stock-management",
+  "version": "1.0.0",
+  "description": "Offline-First Hardware Stock Management Web-App with dual-accountability tracking.",
+  "scripts": {
+    "dev": "npx http-server -p 8080 -c-1"
+  },
+  "keywords": [
+    "offline-first",
+    "indexeddb",
+    "service-worker",
+    "inventory",
+    "glassmorphism"
+  ],
+  "author": "Ironclad Systems",
+  "license": "ISC"
+}
