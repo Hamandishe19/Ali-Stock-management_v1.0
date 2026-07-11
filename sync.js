@@ -1,362 +1,211 @@
 /**
- * sync.js
- * Supabase synchronization engine for Ironclad Stock Management
+ * sync.js — Supabase-Direct Engine
+ *
+ * Architecture:
+ *  • All writes go to Supabase immediately (no queue, no local buffer)
+ *  • All reads come from Supabase on every page load
+ *  • Realtime subscription pushes changes to all connected devices instantly
+ *  • IndexedDB is kept only as a display mirror (fast local reads for UI)
  */
 
-window.SyncEngine = (function() {
+window.SyncEngine = (function () {
   let supabase = null;
-  let isSyncing = false;
-  let deviceId = null;
 
-  function generateDeviceId() {
-    return Math.random().toString(36).substring(2, 6) + Math.random().toString(36).substring(2, 6);
-  }
-
+  // ── Device ID (used for transaction deduplication) ───────────
   function getDeviceId() {
-    if (!deviceId) {
-      deviceId = localStorage.getItem('device_id');
-      if (!deviceId) {
-        deviceId = generateDeviceId();
-        localStorage.setItem('device_id', deviceId);
-      }
+    let id = localStorage.getItem('device_id');
+    if (!id) {
+      id = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('device_id', id);
     }
-    return deviceId;
+    return id;
   }
 
-  function getLastSyncTime() {
-    return parseInt(localStorage.getItem('last_sync_timestamp') || '0', 10);
-  }
-
-  function setLastSyncTime(timestamp) {
-    localStorage.setItem('last_sync_timestamp', timestamp.toString());
-  }
-
-  function getSyncStatus() {
-    if (isSyncing) return 'syncing';
-    return window.AppState && window.AppState.isOnline() ? 'online' : 'offline';
-  }
-
+  // ── Initialise ───────────────────────────────────────────────
   async function init(supabaseClient) {
     supabase = supabaseClient;
     getDeviceId();
 
-    // Setup online/offline listeners
-    window.addEventListener('online', () => {
-      if (window.AppState && !window.AppState.isSimulatedOffline) {
-        fullSync();
-      }
-    });
+    // Pull everything from Supabase into local IndexedDB for display
+    await pullAll();
 
-    // Start realtime and sync if online
-    if (window.AppState && window.AppState.isOnline()) {
-      setupRealtimeSubscriptions();
-      // Initial sync on load
-      setTimeout(fullSync, 1000);
-    }
-
-    // Polling fallback every 30 seconds — ensures sync even if Realtime WebSocket drops
-    setInterval(() => {
-      if (window.AppState && window.AppState.isOnline()) {
-        fullSync();
-      }
-    }, 30000);
+    // Subscribe to live changes from other devices
+    setupRealtime();
   }
 
-  async function pushChanges() {
+  // ── Pull all data from Supabase → local IndexedDB ────────────
+  async function pullAll() {
     if (!supabase) return;
-    
     try {
-      const queue = await window.StockDB.getSyncQueue();
-      if (!queue || queue.length === 0) return;
-
-      console.log(`[SyncEngine] Pushing ${queue.length} items to Supabase...`);
-
-      for (const entry of queue) {
-        const { id, payload, timestamp } = entry;
-        const { storeName, operation, record } = payload;
-
-        try {
-          if (storeName === 'inventory') {
-            if (operation === 'upsert' || operation === 'delete') {
-              // Both upsert and delete (soft-delete) are mapped to Postgres UPSERT
-              const { error } = await supabase
-                .from('inventory')
-                .upsert({
-                  id: record.id,
-                  name: record.name,
-                  category: record.category,
-                  quantity: record.quantity,
-                  min_threshold: record.minThreshold,
-                  max_capacity: record.maxCapacity,
-                  location: record.location || null,
-                  updated_at: record.updatedAt,
-                  is_deleted: record.is_deleted || false
-                }, { onConflict: 'id' });
-              
-              if (error) throw error;
-            }
-          } else if (storeName === 'transactions') {
-            if (operation === 'insert') {
-              // Format for Supabase
-              const dbRecord = {
-                local_id: record.id, // Original IDB ID
-                device_id: getDeviceId(),
-                items: record.items,
-                direction: record.direction,
-                voucher_number: record.voucherNumber,
-                authorised_by: record.authorisedBy,
-                received_by: record.receivedBy,
-                delivered_by: record.deliveredBy,
-                inspected_by: record.inspectedBy,
-                signature_authorised: record.signatureAuthorised,
-                signature_received: record.signatureReceived,
-                signature_delivered: record.signatureDelivered,
-                signature_inspected: record.signatureInspected,
-                person_a: record.personA,
-                person_b: record.personB,
-                signature_a: record.signatureA,
-                signature_b: record.signatureB,
-                memo: record.memo,
-                reference: record.reference,
-                jt_orden: record.jtOrden,
-                pin_verified: record.pinVerified,
-                timestamp: record.timestamp
-              };
-
-              const { error } = await supabase
-                .from('transactions')
-                .insert(dbRecord);
-              
-              // If error is unique constraint violation (already pushed), we can ignore and delete from queue
-              if (error && error.code !== '23505') {
-                throw error;
-              }
-            }
-          }
-
-          // Successfully pushed, remove from local queue
-          await window.StockDB.deleteFromSyncQueue(id);
-        } catch (itemError) {
-          console.error(`[SyncEngine] Failed to push queue item ${id}:`, itemError);
-          // Stop processing queue on first error to maintain order
-          break;
-        }
-      }
-    } catch (err) {
-      console.error('[SyncEngine] pushChanges error:', err);
-    }
-  }
-
-  async function pullChanges() {
-    if (!supabase) return;
-
-    try {
-      const lastSync = getLastSyncTime();
-      const currentSyncTime = Date.now();
-      
-      console.log(`[SyncEngine] Pulling changes since ${new Date(lastSync).toISOString()}...`);
-
-      // 1. Pull Inventory
-      const { data: remoteInventory, error: invError } = await supabase
+      // Inventory
+      const { data: items, error: ie } = await supabase
         .from('inventory')
         .select('*')
-        .gt('updated_at', lastSync); // Pull anything updated since last sync
+        .eq('is_deleted', false);
 
-      if (invError) throw invError;
-
-      if (remoteInventory && remoteInventory.length > 0) {
-        for (const remoteItem of remoteInventory) {
-          const localItem = await window.StockDB.getItem(remoteItem.id);
-          
-          // Conflict resolution: Last write wins (updated_at)
-          if (!localItem || remoteItem.updated_at > localItem.updatedAt) {
-            const mappedItem = {
-              id: remoteItem.id,
-              name: remoteItem.name,
-              category: remoteItem.category,
-              quantity: remoteItem.quantity,
-              minThreshold: remoteItem.min_threshold,
-              maxCapacity: remoteItem.max_capacity,
-              location: remoteItem.location,
-              updatedAt: parseInt(remoteItem.updated_at, 10),
-              is_deleted: remoteItem.is_deleted
-            };
-            await window.StockDB.putItemFromRemote(mappedItem);
-          }
+      if (!ie && items) {
+        for (const item of items) {
+          await window.StockDB.putItemFromRemote(fromSupabaseInventory(item));
         }
       }
 
-      // 2. Pull Transactions
-      const { data: remoteTransactions, error: txError } = await supabase
+      // Transactions
+      const { data: txs, error: te } = await supabase
         .from('transactions')
         .select('*')
-        .gt('timestamp', lastSync)
-        .neq('device_id', getDeviceId()); // Don't pull our own transactions (already local)
+        .order('timestamp', { ascending: false });
 
-      if (txError) throw txError;
-
-      if (remoteTransactions && remoteTransactions.length > 0) {
-        for (const remoteTx of remoteTransactions) {
-          // Check if we already have it (dedup)
-          const existing = await window.StockDB.getTransactionByLocalId(remoteTx.local_id, remoteTx.device_id);
-          if (!existing) {
-            const mappedTx = {
-              id: `remote_${remoteTx.id}`, // Temporary local ID
-              local_id: remoteTx.local_id,
-              device_id: remoteTx.device_id,
-              items: remoteTx.items,
-              direction: remoteTx.direction,
-              voucherNumber: remoteTx.voucher_number,
-              authorisedBy: remoteTx.authorised_by,
-              receivedBy: remoteTx.received_by,
-              deliveredBy: remoteTx.delivered_by,
-              inspectedBy: remoteTx.inspected_by,
-              signatureAuthorised: remoteTx.signature_authorised,
-              signatureReceived: remoteTx.signature_received,
-              signatureDelivered: remoteTx.signature_delivered,
-              signatureInspected: remoteTx.signature_inspected,
-              personA: remoteTx.person_a,
-              personB: remoteTx.person_b,
-              signatureA: remoteTx.signature_a,
-              signatureB: remoteTx.signature_b,
-              memo: remoteTx.memo,
-              reference: remoteTx.reference,
-              jtOrden: remoteTx.jt_orden,
-              pinVerified: remoteTx.pin_verified,
-              timestamp: parseInt(remoteTx.timestamp, 10)
-            };
-            await window.StockDB.addTransactionFromRemote(mappedTx);
+      if (!te && txs) {
+        for (const tx of txs) {
+          const exists = await window.StockDB.getTransactionByLocalId(tx.local_id, tx.device_id);
+          if (!exists) {
+            await window.StockDB.addTransactionFromRemote(fromSupabaseTransaction(tx));
           }
         }
       }
 
-      // Update sync time
-      setLastSyncTime(currentSyncTime);
-
-      // Refresh UI if new data arrived
-      if ((remoteInventory && remoteInventory.length > 0) || (remoteTransactions && remoteTransactions.length > 0)) {
-        window.dispatchEvent(new Event('sync_completed_with_data'));
-      }
-
+      window.dispatchEvent(new Event('sync_completed_with_data'));
     } catch (err) {
-      console.error('[SyncEngine] pullChanges error:', err);
+      console.error('[Sync] pullAll error:', err);
     }
   }
 
-  async function fullSync() {
-    if (isSyncing || !window.AppState || !window.AppState.isOnline() || !supabase) return;
-    
-    // Only sync if user is authenticated
-    const session = await window.Auth.getSession();
-    if (!session) return;
-
-    isSyncing = true;
-    if (window.App && window.App.updateConnectionUI) window.App.updateConnectionUI();
-
-    try {
-      await pushChanges();
-      await pullChanges();
-    } finally {
-      isSyncing = false;
-      if (window.App && window.App.updateConnectionUI) window.App.updateConnectionUI();
-    }
+  // ── Write inventory item directly to Supabase ─────────────────
+  async function writeInventoryItem(item) {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('inventory')
+      .upsert({
+        id:            item.id,
+        name:          item.name,
+        category:      item.category,
+        quantity:      item.quantity,
+        min_threshold: item.minThreshold,
+        max_capacity:  item.maxCapacity,
+        location:      item.location || '',
+        updated_at:    item.updatedAt || Date.now(),
+        is_deleted:    item.is_deleted || false,
+      });
+    if (error) console.error('[Sync] writeInventoryItem error:', error);
   }
 
-  function setupRealtimeSubscriptions() {
+  // ── Write transaction directly to Supabase ────────────────────
+  async function writeTransaction(tx) {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('transactions')
+      .insert({
+        local_id:             tx.id,
+        device_id:            getDeviceId(),
+        items:                tx.items,
+        direction:            tx.direction,
+        voucher_number:       tx.voucherNumber,
+        authorised_by:        tx.authorisedBy,
+        received_by:          tx.receivedBy,
+        delivered_by:         tx.deliveredBy,
+        inspected_by:         tx.inspectedBy,
+        signature_authorised: tx.signatureAuthorised,
+        signature_received:   tx.signatureReceived,
+        signature_delivered:  tx.signatureDelivered,
+        signature_inspected:  tx.signatureInspected,
+        person_a:             tx.personA,
+        person_b:             tx.personB,
+        signature_a:          tx.signatureA,
+        signature_b:          tx.signatureB,
+        memo:                 tx.memo,
+        reference:            tx.reference,
+        jt_orden:             tx.jtOrden,
+        pin_verified:         tx.pinVerified,
+        timestamp:            tx.timestamp,
+      });
+    if (error) console.error('[Sync] writeTransaction error:', error);
+  }
+
+  // ── Realtime: receive changes from other devices ──────────────
+  function setupRealtime() {
     if (!supabase) return;
 
-    const channel = supabase.channel('jdi-stock-sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'inventory' },
-        (payload) => {
-          handleRemoteInventoryChange(payload);
+    supabase.channel('jdi-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, async (payload) => {
+        if (payload.new) {
+          await window.StockDB.putItemFromRemote(fromSupabaseInventory(payload.new));
+          window.dispatchEvent(new Event('sync_completed_with_data'));
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'transactions' },
-        (payload) => {
-          handleRemoteTransactionInsert(payload);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, async (payload) => {
+        if (payload.new) {
+          const exists = await window.StockDB.getTransactionByLocalId(payload.new.local_id, payload.new.device_id);
+          if (!exists) {
+            await window.StockDB.addTransactionFromRemote(fromSupabaseTransaction(payload.new));
+            window.dispatchEvent(new Event('sync_completed_with_data'));
+          }
         }
-      )
+      })
       .subscribe((status) => {
-        console.log('[SyncEngine] Realtime subscription status:', status);
-        // If realtime fails, the 30s polling interval will keep devices in sync
+        console.log('[Sync] Realtime status:', status);
       });
   }
 
-  async function handleRemoteInventoryChange(payload) {
-    const remoteItem = payload.new;
-    if (!remoteItem || remoteItem.is_deleted === undefined) return; // Ignore deletes for now, should be soft-deletes
-
-    const localItem = await window.StockDB.getItem(remoteItem.id);
-    
-    // Last write wins
-    if (!localItem || remoteItem.updated_at > localItem.updatedAt) {
-      const mappedItem = {
-        id: remoteItem.id,
-        name: remoteItem.name,
-        category: remoteItem.category,
-        quantity: remoteItem.quantity,
-        minThreshold: remoteItem.min_threshold,
-        maxCapacity: remoteItem.max_capacity,
-        location: remoteItem.location,
-        updatedAt: parseInt(remoteItem.updated_at, 10),
-        is_deleted: remoteItem.is_deleted
-      };
-      await window.StockDB.putItemFromRemote(mappedItem);
-      window.dispatchEvent(new Event('sync_completed_with_data'));
-    }
+  // ── Field mappers ─────────────────────────────────────────────
+  function fromSupabaseInventory(item) {
+    return {
+      id:           item.id,
+      name:         item.name,
+      category:     item.category,
+      quantity:     item.quantity,
+      minThreshold: item.min_threshold,
+      maxCapacity:  item.max_capacity,
+      location:     item.location,
+      updatedAt:    parseInt(item.updated_at, 10),
+      is_deleted:   item.is_deleted,
+    };
   }
 
-  async function handleRemoteTransactionInsert(payload) {
-    const remoteTx = payload.new;
-    if (!remoteTx || remoteTx.device_id === getDeviceId()) return; // Ignore our own pushes
-
-    const existing = await window.StockDB.getTransactionByLocalId(remoteTx.local_id, remoteTx.device_id);
-    if (!existing) {
-      const mappedTx = {
-        id: `remote_${remoteTx.id}`,
-        local_id: remoteTx.local_id,
-        device_id: remoteTx.device_id,
-        items: remoteTx.items,
-        direction: remoteTx.direction,
-        voucherNumber: remoteTx.voucher_number,
-        authorisedBy: remoteTx.authorised_by,
-        receivedBy: remoteTx.received_by,
-        deliveredBy: remoteTx.delivered_by,
-        inspectedBy: remoteTx.inspected_by,
-        signatureAuthorised: remoteTx.signature_authorised,
-        signatureReceived: remoteTx.signature_received,
-        signatureDelivered: remoteTx.signature_delivered,
-        signatureInspected: remoteTx.signature_inspected,
-        personA: remoteTx.person_a,
-        personB: remoteTx.person_b,
-        signatureA: remoteTx.signature_a,
-        signatureB: remoteTx.signature_b,
-        memo: remoteTx.memo,
-        reference: remoteTx.reference,
-        jtOrden: remoteTx.jt_orden,
-        pinVerified: remoteTx.pin_verified,
-        timestamp: parseInt(remoteTx.timestamp, 10)
-      };
-      await window.StockDB.addTransactionFromRemote(mappedTx);
-      window.dispatchEvent(new Event('sync_completed_with_data'));
-    }
+  function fromSupabaseTransaction(tx) {
+    return {
+      id:                   tx.local_id ? `remote_${tx.id}` : tx.id,
+      local_id:             tx.local_id,
+      device_id:            tx.device_id,
+      items:                tx.items,
+      direction:            tx.direction,
+      voucherNumber:        tx.voucher_number,
+      authorisedBy:         tx.authorised_by,
+      receivedBy:           tx.received_by,
+      deliveredBy:          tx.delivered_by,
+      inspectedBy:          tx.inspected_by,
+      signatureAuthorised:  tx.signature_authorised,
+      signatureReceived:    tx.signature_received,
+      signatureDelivered:   tx.signature_delivered,
+      signatureInspected:   tx.signature_inspected,
+      personA:              tx.person_a,
+      personB:              tx.person_b,
+      signatureA:           tx.signature_a,
+      signatureB:           tx.signature_b,
+      memo:                 tx.memo,
+      reference:            tx.reference,
+      jtOrden:              tx.jt_orden,
+      pinVerified:          tx.pin_verified,
+      timestamp:            parseInt(tx.timestamp, 10),
+    };
   }
 
+  // ── Public API ────────────────────────────────────────────────
   return {
     init,
     getDeviceId,
-    getSyncStatus,
-    fullSync,
-    queueChange: async (storeName, operation, record) => {
-      await window.StockDB.addToSyncQueue({ storeName, operation, record });
-      // Debounce trigger sync
-      if (window.SyncEngine._syncTimeout) clearTimeout(window.SyncEngine._syncTimeout);
-      window.SyncEngine._syncTimeout = setTimeout(fullSync, 2000);
-    }
-  };
+    pullAll,
+    writeInventoryItem,
+    writeTransaction,
+    getSyncStatus: () => supabase ? 'online' : 'offline',
+    fullSync: pullAll,
 
+    // Called by app.js after every local write — pushes to Supabase immediately
+    queueChange: async (storeName, _operation, record) => {
+      if (storeName === 'inventory') {
+        await writeInventoryItem(record);
+      } else if (storeName === 'transactions') {
+        await writeTransaction(record);
+      }
+    },
+  };
 })();
