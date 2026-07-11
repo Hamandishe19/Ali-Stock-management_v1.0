@@ -1,5 +1,19 @@
-const CACHE_NAME = 'hardware-stock-v4';
-const ASSETS_TO_CACHE = [
+// ─────────────────────────────────────────────────────────────
+//  JDI Stock Management — Service Worker
+//  Strategy:
+//    • App files  (HTML/JS/CSS) → Network-first  (always fresh)
+//    • Fonts / CDN              → Cache-first    (stable, rarely change)
+//    • Supabase API calls       → Never cached   (handled by sync.js)
+// ─────────────────────────────────────────────────────────────
+
+// Bump this version any time you deploy a significant change.
+// This automatically clears old caches on activation.
+const CACHE_VERSION = 'v5';
+const APP_CACHE     = `jdi-app-${CACHE_VERSION}`;
+const STATIC_CACHE  = `jdi-static-${CACHE_VERSION}`;
+
+// App shell files — always fetched fresh from network
+const APP_FILES = [
   './',
   './index.html',
   './login.html',
@@ -13,92 +27,93 @@ const ASSETS_TO_CACHE = [
   './db.js',
   './db-init-data.js',
   './app.js',
-  'https://cdn.tailwindcss.com',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
-  'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap'
 ];
 
-// Install Service Worker and cache all assets
+// Stable third-party assets — cached indefinitely
+const STATIC_FILES = [
+  'https://cdn.tailwindcss.com',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+  'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap',
+];
+
+// ── Install ──────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Service Worker: Caching Assets...');
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => {
-      return self.skipWaiting();
-    })
+    Promise.all([
+      caches.open(APP_CACHE).then((cache) => cache.addAll(APP_FILES)),
+      caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_FILES)),
+    ]).then(() => self.skipWaiting())
   );
 });
 
-// Activate Service Worker and clean up old caches
+// ── Activate: wipe every old cache ──────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log('Service Worker: Clearing Old Cache...', cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => {
-      return self.clients.claim();
-    })
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys
+          .filter((k) => k !== APP_CACHE && k !== STATIC_CACHE)
+          .map((k) => {
+            console.log('[SW] Deleting old cache:', k);
+            return caches.delete(k);
+          })
+      )
+    ).then(() => self.clients.claim())
   );
 });
 
-// Intercept fetch requests and serve cached content offline
+// ── Fetch ────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
-  // Only cache GET requests (ignore POST, PUT, etc.)
-  if (event.request.method !== 'GET') {
-    return;
-  }
+  const { request } = event;
 
-  // Avoid caching browser extension schemes or non-http protocols
-  if (!event.request.url.startsWith('http')) {
-    return;
-  }
+  // Only handle GET
+  if (request.method !== 'GET') return;
 
-  // NEVER cache Supabase API calls! We handle those in sync.js / offline db
-  if (event.request.url.includes('.supabase.co')) {
-    return;
-  }
+  // Only handle http/https
+  if (!request.url.startsWith('http')) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached file if found
-        return cachedResponse;
-      }
+  // ❌ Never intercept Supabase — must always hit the live API
+  if (request.url.includes('.supabase.co')) return;
 
-      // Otherwise fetch from network
-      return fetch(event.request)
+  const isAppFile = APP_FILES.some((f) =>
+    request.url.endsWith(f.replace('./', '/')) ||
+    request.url.includes(f.replace('./', ''))
+  ) || request.mode === 'navigate';
+
+  if (isAppFile) {
+    // ── Network-first for app files ──────────────────────────
+    // Always try network. If offline, serve cache. If no cache, offline page.
+    event.respondWith(
+      fetch(request)
         .then((response) => {
-          // Check if response is valid
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(APP_CACHE).then((cache) => cache.put(request, clone));
           }
-
-          // Dynamically cache new GET requests (excluding third-party scripts we don't want to store dynamically)
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-
           return response;
         })
         .catch(async () => {
-          console.warn('Fetch failed, user is likely offline:', event.request.url);
-          if (event.request.mode === 'navigate') {
-            const fallback = await caches.match('./index.html');
-            if (fallback) return fallback;
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          if (request.mode === 'navigate') {
+            return caches.match('./index.html');
           }
-          return new Response('Offline — please reconnect.', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain' }
-          });
+          return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
+        })
+    );
+  } else {
+    // ── Cache-first for fonts and stable CDN assets ───────────
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+          }
+          return response;
         });
-    })
-  );
+      })
+    );
+  }
 });
