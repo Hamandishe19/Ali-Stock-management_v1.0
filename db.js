@@ -115,6 +115,30 @@ const StockDB = {
     });
   },
 
+  // Physically remove a single item from local IndexedDB (used when Supabase deletes it)
+  async hardDeleteItem(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('inventory', 'readwrite');
+      const store = transaction.objectStore('inventory');
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  // Wipe ALL inventory from local IndexedDB — used before a fresh pull from Supabase
+  async clearInventoryStore() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('inventory', 'readwrite');
+      const store = transaction.objectStore('inventory');
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
   // --- Transactions Store Operations ---
   async getAllTransactions() {
     const db = await this.open();
