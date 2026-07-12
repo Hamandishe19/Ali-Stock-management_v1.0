@@ -193,6 +193,18 @@ const StockDB = {
     });
   },
 
+  // Wipe ALL transactions from local IndexedDB — used before a fresh pull from Supabase
+  async clearTransactionStore() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('transactions', 'readwrite');
+      const store = transaction.objectStore('transactions');
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
   // --- Sync Queue Store Operations ---
   async getSyncQueue() {
     const db = await this.open();
