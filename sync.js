@@ -155,6 +155,9 @@ window.SyncEngine = (function () {
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, async (payload) => {
         if (payload.new) {
+          // Skip transactions we created ourselves — already saved locally
+          if (payload.new.device_id === getDeviceId()) return;
+
           const exists = await window.StockDB.getTransactionByLocalId(payload.new.local_id, payload.new.device_id);
           if (!exists) {
             await window.StockDB.addTransactionFromRemote(fromSupabaseTransaction(payload.new));
