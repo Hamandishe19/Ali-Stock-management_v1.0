@@ -52,20 +52,20 @@ window.SyncEngine = (function () {
         }
       }
 
-      // ── Transactions: add any missing ones ──────────────────────────
+      // ── Transactions: clear local store then repopulate from Supabase ──
+      // This removes any old seed data or locally-only records
       const { data: txs, error: te } = await supabase
         .from('transactions')
         .select('*')
         .order('timestamp', { ascending: false });
 
       if (!te && txs) {
+        await window.StockDB.clearTransactionStore();
         for (const tx of txs) {
-          const exists = await window.StockDB.getTransactionByLocalId(tx.local_id, tx.device_id);
-          if (!exists) {
-            await window.StockDB.addTransactionFromRemote(fromSupabaseTransaction(tx));
-          }
+          await window.StockDB.addTransactionFromRemote(fromSupabaseTransaction(tx));
         }
       }
+
 
       window.dispatchEvent(new Event('sync_completed_with_data'));
     } catch (err) {
