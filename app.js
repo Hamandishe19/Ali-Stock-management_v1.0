@@ -25,8 +25,9 @@ const AppState = {
 // Expose on window so sync.js can access it across scripts
 window.AppState = AppState;
 
+// On sync: only refresh displayed data — never re-initialize forms or re-attach listeners
 window.addEventListener('sync_completed_with_data', () => {
-  initActivePage();
+  refreshData();
 });
 
 // --- Toast Notification Helper ---
@@ -436,6 +437,22 @@ function initActivePage() {
   } else if (page === 'history.html') {
     initHistory();
   }
+}
+
+// --- Lightweight Data Refresh (called on sync events) ---
+// Only re-renders data displays. Does NOT re-attach any event listeners.
+function refreshData() {
+  const path = window.location.pathname;
+  const page = path.split('/').pop() || 'index.html';
+
+  if (page === 'index.html' || page === '') {
+    initDashboard();
+  } else if (page === 'inventory.html') {
+    renderInventoryGrid();   // data-only, no listeners
+  } else if (page === 'history.html') {
+    renderHistoryTable();    // data-only, no listeners
+  }
+  // transaction.html intentionally excluded — form listeners must not be re-added
 }
 
 // --- Dashboard Initializer ---
