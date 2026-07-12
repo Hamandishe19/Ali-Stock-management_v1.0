@@ -37,19 +37,22 @@ window.SyncEngine = (function () {
   async function pullAll() {
     if (!supabase) return;
     try {
-      // Inventory
+      // ── Inventory: clear local store then repopulate from Supabase ──
+      // This ensures deletes in Supabase are reflected on every device
       const { data: items, error: ie } = await supabase
         .from('inventory')
-        .select('*')
-        .eq('is_deleted', false);
+        .select('*');
 
       if (!ie && items) {
+        await window.StockDB.clearInventoryStore();
         for (const item of items) {
-          await window.StockDB.putItemFromRemote(fromSupabaseInventory(item));
+          if (!item.is_deleted) {
+            await window.StockDB.putItemFromRemote(fromSupabaseInventory(item));
+          }
         }
       }
 
-      // Transactions
+      // ── Transactions: add any missing ones ──────────────────────────
       const { data: txs, error: te } = await supabase
         .from('transactions')
         .select('*')
@@ -126,9 +129,27 @@ window.SyncEngine = (function () {
     if (!supabase) return;
 
     supabase.channel('jdi-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, async (payload) => {
-        if (payload.new) {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'inventory' }, async (payload) => {
+        if (payload.new && !payload.new.is_deleted) {
           await window.StockDB.putItemFromRemote(fromSupabaseInventory(payload.new));
+          window.dispatchEvent(new Event('sync_completed_with_data'));
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'inventory' }, async (payload) => {
+        if (payload.new) {
+          if (payload.new.is_deleted) {
+            // Soft-deleted via app — remove locally
+            await window.StockDB.hardDeleteItem(payload.new.id);
+          } else {
+            await window.StockDB.putItemFromRemote(fromSupabaseInventory(payload.new));
+          }
+          window.dispatchEvent(new Event('sync_completed_with_data'));
+        }
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'inventory' }, async (payload) => {
+        // Hard-deleted directly from Supabase dashboard
+        if (payload.old && payload.old.id) {
+          await window.StockDB.hardDeleteItem(payload.old.id);
           window.dispatchEvent(new Event('sync_completed_with_data'));
         }
       })
